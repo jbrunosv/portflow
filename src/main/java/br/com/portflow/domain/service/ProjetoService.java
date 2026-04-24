@@ -1,6 +1,7 @@
 package br.com.portflow.domain.service;
 
 import br.com.portflow.api.mapper.ProjetoMapper;
+import br.com.portflow.api.model.MembroModel;
 import br.com.portflow.api.model.ProjetoModel;
 import br.com.portflow.domain.model.*;
 import br.com.portflow.domain.repository.AssociacaoProjetoMembroRepository;
@@ -23,15 +24,15 @@ import java.util.List;
 public class ProjetoService {
 
     private final ProjetoRepository projetoRepository;
-    private final MembroService membroService;
+    private final MembroGateway membroGateway;
     private final AssociacaoProjetoMembroRepository associacaoRepository;
     private final ProjetoMapper projetoMapper;
 
     @Transactional
     public Projeto salvar(ProjetoModel.SaveVO vo) {
         Projeto projeto = projetoMapper.toEntity(vo);
-        Membro gerente = membroService.buscarPorId(vo.gerenteId());
-        projeto.setGerente(gerente);
+        buscarMembroPorId(vo.gerenteId());
+        projeto.setGerenteId(vo.gerenteId());
         projeto.setStatusAtual(StatusProjeto.EM_ANALISE);
         projeto.setRisco(calcularRisco(projeto));
 
@@ -51,12 +52,13 @@ public class ProjetoService {
         projeto.setOrcamentoTotal(vo.orcamentoTotal());
         projeto.setDescricao(vo.descricao());
 
-        if (!projeto.getGerente().getId().equals(vo.gerenteId())) {
-            Membro gerente = membroService.buscarPorId(vo.gerenteId());
-            projeto.setGerente(gerente);
+        if (!projeto.getGerenteId().equals(vo.gerenteId())) {
+            buscarMembroPorId(vo.gerenteId());
+            projeto.setGerenteId(vo.gerenteId());
         }
 
         projeto.setStatusAtual(vo.statusAtual());
+        validarMinimoMembrosParaStatus(projeto);
         projeto.setRisco(calcularRisco(projeto));
 
         return projetoRepository.save(projeto);
@@ -102,30 +104,75 @@ public class ProjetoService {
             return;
         }
 
-        if (novo.ordinal() < atual.ordinal()) {
+        StatusProjeto proximoStatus = obterProximoStatus(atual);
+        if (proximoStatus != novo) {
             throw new IllegalArgumentException(
-                    "Não é permitido retroceder o status do projeto. Transição inválida de " + atual + " para " + novo);
+                    "Não é permitido pular etapas do fluxo. Transição inválida de " + atual + " para " + novo);
+        }
+    }
+
+    private StatusProjeto obterProximoStatus(StatusProjeto statusAtual) {
+        return switch (statusAtual) {
+            case EM_ANALISE -> StatusProjeto.ANALISE_REALIZADA;
+            case ANALISE_REALIZADA -> StatusProjeto.ANALISE_APROVADA;
+            case ANALISE_APROVADA -> StatusProjeto.INICIADO;
+            case INICIADO -> StatusProjeto.PLANEJADO;
+            case PLANEJADO -> StatusProjeto.EM_ANDAMENTO;
+            case EM_ANDAMENTO -> StatusProjeto.ENCERRADO;
+            case ENCERRADO, CANCELADO -> null;
+        };
+    }
+
+    private void validarMinimoMembrosParaStatus(Projeto projeto) {
+        StatusProjeto status = projeto.getStatusAtual();
+        if (status == StatusProjeto.INICIADO ||
+                status == StatusProjeto.PLANEJADO ||
+                status == StatusProjeto.EM_ANDAMENTO ||
+                status == StatusProjeto.ENCERRADO) {
+            long qtdMembrosNoProjeto = associacaoRepository.countByProjetoId(projeto.getId());
+            if (qtdMembrosNoProjeto < 1) {
+                throw new IllegalArgumentException(
+                        "Projeto deve possuir ao menos 1 membro associado para avançar para status de execução.");
+            }
         }
     }
 
     @Transactional
     public void associarMembro(Long projetoId, Long membroId) {
         Projeto projeto = buscarPorId(projetoId);
-        Membro membro = membroService.buscarPorId(membroId);
+        MembroModel.DTO membro = buscarMembroPorId(membroId);
 
-        if (membro.getAtribuicao() != Atribuicao.FUNCIONARIO) {
-            throw new IllegalArgumentException("Apenas membros com atribuição 'funcionário' podem ser associados.");
-        }
-
-        if (associacaoRepository.existsByProjetoIdAndMembroId(projetoId, membroId)) {
-            throw new IllegalArgumentException("Membro já está associado a este projeto.");
-        }
+        validarMembroParaAssociacao(projetoId, membro);
 
         long qtdMembrosNoProjeto = associacaoRepository.countByProjetoId(projetoId);
         if (qtdMembrosNoProjeto >= 10) {
             throw new IllegalArgumentException("O projeto já atingiu o limite máximo de 10 membros.");
         }
 
+        validarLimiteProjetosAtivosDoMembro(membro.id());
+
+        AssociacaoProjetoMembro associacao = new AssociacaoProjetoMembro(null, projeto, membro.id());
+        associacaoRepository.save(associacao);
+    }
+
+    private MembroModel.DTO buscarMembroPorId(Long membroId) {
+        MembroModel.DTO membro = membroGateway.buscarPorId(membroId);
+        if (membro == null || membro.id() == null) {
+            throw new EntityNotFoundException("Membro não encontrado com ID: " + membroId);
+        }
+        return membro;
+    }
+
+    private void validarMembroParaAssociacao(Long projetoId, MembroModel.DTO membro) {
+        if (membro.atribuicao() != Atribuicao.FUNCIONARIO) {
+            throw new IllegalArgumentException("Apenas membros com atribuição 'funcionário' podem ser associados.");
+        }
+        if (associacaoRepository.existsByProjetoIdAndMembroId(projetoId, membro.id())) {
+            throw new IllegalArgumentException("Membro já está associado a este projeto.");
+        }
+    }
+
+    private void validarLimiteProjetosAtivosDoMembro(Long membroId) {
         List<AssociacaoProjetoMembro> associacoesDoMembro = associacaoRepository.findByMembroId(membroId);
         long projetosAtivos = associacoesDoMembro.stream()
                 .filter(a -> a.getProjeto().getStatusAtual() != StatusProjeto.ENCERRADO &&
@@ -136,8 +183,5 @@ public class ProjetoService {
             throw new IllegalArgumentException(
                     "Membro não pode estar alocado em mais de 3 projetos simultaneamente (excluindo encerrados/cancelados).");
         }
-
-        AssociacaoProjetoMembro associacao = new AssociacaoProjetoMembro(null, projeto, membro);
-        associacaoRepository.save(associacao);
     }
 }

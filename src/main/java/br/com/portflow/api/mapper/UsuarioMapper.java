@@ -11,5 +11,6 @@ public interface UsuarioMapper {
 
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "senha", ignore = true)
+    @Mapping(target = "permissoes", ignore = true)
     Usuario toEntity(AuthModel.NovoUsuarioVO vo);
 }

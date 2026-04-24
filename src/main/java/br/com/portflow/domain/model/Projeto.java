@@ -46,9 +46,8 @@ public class Projeto {
     @Column(nullable = false)
     private RiscoProjeto risco;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "gerente_id", nullable = false)
-    private Membro gerente;
+    @Column(name = "gerente_id", nullable = false)
+    private Long gerenteId;
 
     @OneToMany(mappedBy = "projeto", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default

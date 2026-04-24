@@ -1,26 +1,14 @@
 package br.com.portflow.api.mapper;
 
 import br.com.portflow.api.model.MembroModel;
-import br.com.portflow.domain.model.AssociacaoProjetoMembro;
-import br.com.portflow.domain.model.Membro;
 import org.mapstruct.Mapper;
-import org.mapstruct.Mapping;
 import org.mapstruct.MappingConstants;
+
+import java.util.List;
 
 @Mapper(componentModel = MappingConstants.ComponentModel.SPRING)
 public interface MembroMapper {
+    MembroModel.ListDTO toListDTO(MembroModel.DTO dto);
 
-    @Mapping(target = "id", ignore = true)
-    Membro toEntity(MembroModel.SaveVO saveVO);
-
-    MembroModel.DTO toDTO(Membro membro);
-
-    default MembroModel.DTO toDTO(AssociacaoProjetoMembro associacao) {
-        if (associacao == null || associacao.getMembro() == null) {
-            return null;
-        }
-        return toDTO(associacao.getMembro());
-    }
-
-    MembroModel.ListPageDTO toListPageDTO(Membro membro);
+    List<MembroModel.ListDTO> toListDTOs(List<MembroModel.DTO> dtos);
 }

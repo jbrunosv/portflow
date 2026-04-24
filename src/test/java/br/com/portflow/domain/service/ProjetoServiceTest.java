@@ -1,6 +1,7 @@
 package br.com.portflow.domain.service;
 
 import br.com.portflow.api.mapper.ProjetoMapper;
+import br.com.portflow.api.model.MembroModel;
 import br.com.portflow.domain.model.*;
 import br.com.portflow.domain.repository.AssociacaoProjetoMembroRepository;
 import br.com.portflow.domain.repository.ProjetoRepository;
@@ -13,6 +14,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -26,7 +28,7 @@ class ProjetoServiceTest {
     private ProjetoRepository projetoRepository;
 
     @Mock
-    private MembroService membroService;
+    private MembroGateway membroGateway;
 
     @Mock
     private AssociacaoProjetoMembroRepository associacaoRepository;
@@ -88,8 +90,11 @@ class ProjetoServiceTest {
     }
 
     @Test
-    void validarTransicaoStatus_DevePermitirPularEtapaParaFrente() {
+    void validarTransicaoStatus_DevePermitirApenasProximaEtapa() {
         assertDoesNotThrow(() -> 
+            projetoService.validarTransicaoStatus(StatusProjeto.EM_ANALISE, StatusProjeto.ANALISE_REALIZADA)
+        );
+        assertThrows(IllegalArgumentException.class, () ->
             projetoService.validarTransicaoStatus(StatusProjeto.EM_ANALISE, StatusProjeto.ANALISE_APROVADA)
         );
     }
@@ -113,10 +118,50 @@ class ProjetoServiceTest {
     @Test
     void associarMembro_DeveLancarExcecaoSeNaoForFuncionario() {
         when(projetoRepository.findById(1L)).thenReturn(Optional.of(projeto));
+        MembroModel.DTO membro = new MembroModel.DTO(1L, "João", Atribuicao.OUTRO);
+        when(membroGateway.buscarPorId(1L)).thenReturn(membro);
         
-        Membro membro = new Membro(1L, "João", Atribuicao.OUTRO);
-        when(membroService.buscarPorId(1L)).thenReturn(membro);
-        
+        assertThrows(IllegalArgumentException.class, () -> projetoService.associarMembro(1L, 1L));
+    }
+
+    @Test
+    void atualizar_DeveLancarExcecaoQuandoStatusExecucaoSemMembro() {
+        projeto.setStatusAtual(StatusProjeto.ANALISE_APROVADA);
+        projeto.setGerenteId(99L);
+        when(projetoRepository.findById(1L)).thenReturn(Optional.of(projeto));
+        when(associacaoRepository.countByProjetoId(1L)).thenReturn(0L);
+
+        var vo = new br.com.portflow.api.model.ProjetoModel.UpdateVO(
+                "Projeto Teste",
+                projeto.getDataInicio(),
+                projeto.getPrevisaoTermino(),
+                null,
+                projeto.getOrcamentoTotal(),
+                "desc",
+                99L,
+                StatusProjeto.INICIADO
+        );
+
+        assertThrows(IllegalArgumentException.class, () -> projetoService.atualizar(1L, vo));
+    }
+
+    @Test
+    void associarMembro_DeveLancarExcecaoQuandoMembroJaEmTresProjetosAtivos() {
+        when(projetoRepository.findById(1L)).thenReturn(Optional.of(projeto));
+        MembroModel.DTO membro = new MembroModel.DTO(1L, "João", Atribuicao.FUNCIONARIO);
+        when(membroGateway.buscarPorId(1L)).thenReturn(membro);
+        when(associacaoRepository.existsByProjetoIdAndMembroId(1L, 1L)).thenReturn(false);
+        when(associacaoRepository.countByProjetoId(1L)).thenReturn(1L);
+
+        Projeto ativo1 = Projeto.builder().statusAtual(StatusProjeto.INICIADO).build();
+        Projeto ativo2 = Projeto.builder().statusAtual(StatusProjeto.PLANEJADO).build();
+        Projeto ativo3 = Projeto.builder().statusAtual(StatusProjeto.EM_ANDAMENTO).build();
+        when(associacaoRepository.findByMembroId(1L)).thenReturn(List.of(
+                new AssociacaoProjetoMembro(1L, ativo1, 1L),
+                new AssociacaoProjetoMembro(2L, ativo2, 1L),
+                new AssociacaoProjetoMembro(3L, ativo3, 1L)
+        ));
+
         assertThrows(IllegalArgumentException.class, () -> projetoService.associarMembro(1L, 1L));
     }
 }

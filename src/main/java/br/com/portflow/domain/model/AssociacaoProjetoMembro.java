@@ -19,7 +19,6 @@ public class AssociacaoProjetoMembro {
     @JoinColumn(name = "projeto_id", nullable = false)
     private Projeto projeto;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "membro_id", nullable = false)
-    private Membro membro;
+    @Column(name = "membro_id", nullable = false)
+    private Long membroId;
 }

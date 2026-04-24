@@ -1,6 +1,7 @@
 package br.com.portflow.domain.service;
 
 import br.com.portflow.api.model.RelatorioModel;
+import br.com.portflow.domain.model.AssociacaoProjetoMembro;
 import br.com.portflow.domain.model.Projeto;
 import br.com.portflow.domain.model.StatusProjeto;
 import br.com.portflow.domain.repository.AssociacaoProjetoMembroRepository;
@@ -46,7 +47,7 @@ public class RelatorioService {
         }
 
         long totalMembrosUnicos = associacaoRepository.findAll().stream()
-                .map(a -> a.getMembro().getId())
+                .map(AssociacaoProjetoMembro::getMembroId)
                 .distinct()
                 .count();
 
